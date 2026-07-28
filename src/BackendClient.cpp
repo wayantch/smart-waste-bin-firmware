@@ -1,5 +1,6 @@
 #include "BackendClient.h"
 
+#include "AppLog.h"
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 
@@ -10,6 +11,7 @@ BackendClient::BackendClient(const char *url) : url_(url) {}
 bool BackendClient::classify(const String &base64Image, DetectionState &state) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi terputus!");
+    app_log::add("WiFi terputus!");
     return false;
   }
 
@@ -26,6 +28,7 @@ bool BackendClient::classify(const String &base64Image, DetectionState &state) {
 
   if (httpCode != 200) {
     Serial.printf("HTTP Error: %d\n", httpCode);
+    app_log::add(String("HTTP Error: ") + String(httpCode));
     http.end();
     return false;
   }
@@ -37,6 +40,7 @@ bool BackendClient::classify(const String &base64Image, DetectionState &state) {
   DeserializationError err = deserializeJson(doc, response);
   if (err) {
     Serial.println("JSON parse error");
+    app_log::add("JSON parse error");
     return false;
   }
 
@@ -54,11 +58,14 @@ bool BackendClient::classify(const String &base64Image, DetectionState &state) {
   Serial.printf("Deteksi   : %d objek\n", state.detections);
   Serial.printf("Latency   : %d ms\n", state.latencyMs);
   Serial.println("=============================\n");
+  app_log::add(String("Hasil: ") + state.label + " | confidence " + String(state.confidence * 100.0f, 2) + "% | deteksi " + String(state.detections) + " | latency " + String(state.latencyMs) + " ms");
 
   if (state.label == "plastic") {
     Serial.println("-> PLASTIK TERDETEKSI - trigger motor sorting ke bin plastik");
+    app_log::add("-> PLASTIK TERDETEKSI - trigger motor sorting ke bin plastik");
   } else {
     Serial.println("-> NON-PLASTIK - trigger motor sorting ke bin biasa");
+    app_log::add("-> NON-PLASTIK - trigger motor sorting ke bin biasa");
   }
 
   return true;

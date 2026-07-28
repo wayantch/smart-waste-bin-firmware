@@ -27,7 +27,9 @@ class WebDashboard {
 
   void handleRoot();
   void handleStatus();
+  void handleLogs();
   void handleStream();
   String buildStatusJson();
+  String buildLogsJson();
   String buildHtmlPage() const;
 };

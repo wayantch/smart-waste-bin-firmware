@@ -1,5 +1,6 @@
 #include "CameraService.h"
 
+#include "AppLog.h"
 #include "Config.h"
 
 static const char kBase64Table[] =
@@ -40,10 +41,12 @@ bool CameraService::begin() {
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Kamera gagal: 0x%x\n", err);
+    app_log::add(String("Kamera gagal: 0x") + String(err, HEX));
     return false;
   }
 
   Serial.println("Kamera OK!");
+  app_log::add("Kamera OK!");
   return true;
 }
 
@@ -54,6 +57,7 @@ bool CameraService::capture(camera_fb_t *&frame) {
 
   if (xSemaphoreTake(cameraMutex_, pdMS_TO_TICKS(2000)) != pdTRUE) {
     Serial.println("Mutex kamera timeout");
+    app_log::add("Mutex kamera timeout");
     return false;
   }
 
@@ -61,6 +65,7 @@ bool CameraService::capture(camera_fb_t *&frame) {
   if (!frame) {
     xSemaphoreGive(cameraMutex_);
     Serial.println("Gagal capture frame");
+    app_log::add("Gagal capture frame");
     return false;
   }
 
@@ -103,6 +108,7 @@ String CameraService::captureBase64() {
 
   String encoded = encodeBase64(frame->buf, frame->len);
   Serial.printf("Capture OK: %d bytes -> base64 %d chars\n", frame->len, encoded.length());
+  app_log::add(String("Capture OK: ") + String(frame->len) + " bytes -> base64 " + String(encoded.length()) + " chars");
   release(frame);
   return encoded;
 }

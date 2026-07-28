@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
+#include "AppLog.h"
 #include "Config.h"
 
 WebDashboard::WebDashboard(CameraService &camera, DetectionState &state, SemaphoreHandle_t stateMutex)
@@ -11,6 +12,7 @@ WebDashboard::WebDashboard(CameraService &camera, DetectionState &state, Semapho
 void WebDashboard::begin() {
   server_.on("/", HTTP_GET, [this]() { handleRoot(); });
   server_.on("/status", HTTP_GET, [this]() { handleStatus(); });
+  server_.on("/logs", HTTP_GET, [this]() { handleLogs(); });
   server_.on("/stream", HTTP_GET, [this]() { handleStream(); });
   server_.onNotFound([this]() { server_.send(404, "text/plain", "Not found"); });
 
@@ -50,6 +52,10 @@ void WebDashboard::handleRoot() {
 
 void WebDashboard::handleStatus() {
   server_.send(200, "application/json", buildStatusJson());
+}
+
+void WebDashboard::handleLogs() {
+  server_.send(200, "application/json", buildLogsJson());
 }
 
 void WebDashboard::handleStream() {
@@ -119,6 +125,10 @@ String WebDashboard::buildStatusJson() {
   String json;
   serializeJson(doc, json);
   return json;
+}
+
+String WebDashboard::buildLogsJson() {
+  return app_log::snapshotJson();
 }
 
 String WebDashboard::buildHtmlPage() const {
@@ -246,6 +256,42 @@ String WebDashboard::buildHtmlPage() const {
       color: var(--muted);
       font-size: 0.92rem;
     }
+    .log-panel {
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+    .log-panel h3 {
+      margin: 0 0 12px;
+      font-size: 1rem;
+    }
+    .log-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow: auto;
+    }
+    .log-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      color: #dbe7f7;
+      font-size: 0.9rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .log-meta {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-bottom: 4px;
+    }
     @media (max-width: 900px) {
       .hero { grid-template-columns: 1fr; }
     }
@@ -292,6 +338,11 @@ String WebDashboard::buildHtmlPage() const {
         </div>
 
         <div class="footer">Refresh status otomatis setiap 1 detik.</div>
+
+        <section class="log-panel">
+          <h3>Log</h3>
+          <ul class="log-list" id="logList"></ul>
+        </section>
       </aside>
     </section>
   </main>
@@ -304,11 +355,44 @@ String WebDashboard::buildHtmlPage() const {
     const validEl = document.getElementById('valid');
     const updatedAtEl = document.getElementById('updatedAt');
     const badgeEl = document.getElementById('connectionBadge');
+    const logListEl = document.getElementById('logList');
+
+    function renderLogs(entries) {
+      logListEl.innerHTML = '';
+
+      if (!entries || entries.length === 0) {
+        const emptyItem = document.createElement('li');
+        emptyItem.className = 'log-item';
+        emptyItem.textContent = 'Belum ada log.';
+        logListEl.appendChild(emptyItem);
+        return;
+      }
+
+      entries.slice().reverse().forEach((entry) => {
+        const item = document.createElement('li');
+        item.className = 'log-item';
+
+        const meta = document.createElement('span');
+        meta.className = 'log-meta';
+        meta.textContent = `t+${entry.ts ?? 0} ms`;
+
+        const body = document.createElement('span');
+        body.textContent = entry.message || '';
+
+        item.appendChild(meta);
+        item.appendChild(body);
+        logListEl.appendChild(item);
+      });
+    }
 
     async function refreshStatus() {
       try {
-        const response = await fetch('/status', { cache: 'no-store' });
-        const data = await response.json();
+        const [statusResponse, logsResponse] = await Promise.all([
+          fetch('/status', { cache: 'no-store' }),
+          fetch('/logs', { cache: 'no-store' })
+        ]);
+        const data = await statusResponse.json();
+        const logs = await logsResponse.json();
 
         labelEl.textContent = data.label || 'waiting';
         confidenceEl.textContent = `${Math.round((data.confidence || 0) * 100)}%`;
@@ -317,9 +401,11 @@ String WebDashboard::buildHtmlPage() const {
         validEl.textContent = String(Boolean(data.valid));
         updatedAtEl.textContent = data.valid ? `Updated at ${new Date().toLocaleTimeString()}` : 'Menunggu hasil terbaru...';
         badgeEl.textContent = 'Live';
+        renderLogs(logs);
       } catch (error) {
         badgeEl.textContent = 'Offline';
         updatedAtEl.textContent = 'Tidak bisa mengambil status dari device.';
+        renderLogs([]);
       }
     }
 
