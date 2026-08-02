@@ -22,6 +22,13 @@ bool WasteBinApp::begin() {
   Serial.println("Sensor IR OK!");
   app_log::add("Sensor IR OK!");
 
+  // Init sensor ultrasonic HC-SR04
+  pinMode(config::ULTRASONIC_TRIG_PIN, OUTPUT);
+  pinMode(config::ULTRASONIC_ECHO_PIN, INPUT);
+  digitalWrite(config::ULTRASONIC_TRIG_PIN, LOW);
+  Serial.println("Sensor ultrasonic HC-SR04 OK!");
+  app_log::add("Sensor ultrasonic HC-SR04 OK!");
+
   if (!camera_.begin()) return false;
 
   dashboard_.reset(new WebDashboard(camera_, state_, stateMutex_));
@@ -50,8 +57,22 @@ void WasteBinApp::connectWifi() {
 
 bool WasteBinApp::isObjectDetected() {
   // Sensor IR aktif LOW — LOW = ada objek, HIGH = kosong
-  // Kalau sensor lo aktif HIGH, ganti LOW → HIGH di bawah
   return digitalRead(config::IR_SENSOR_PIN) == LOW;
+}
+
+float WasteBinApp::readUltrasonicDistance() {
+  digitalWrite(config::ULTRASONIC_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(config::ULTRASONIC_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(config::ULTRASONIC_TRIG_PIN, LOW);
+
+  unsigned long durationUs = pulseIn(config::ULTRASONIC_ECHO_PIN, HIGH, config::ULTRASONIC_TIMEOUT_US);
+  if (durationUs == 0) {
+    return -1.0f;
+  }
+
+  return static_cast<float>(durationUs) / 58.0f;
 }
 
 void WasteBinApp::runDetectionCycle() {
@@ -89,7 +110,24 @@ void WasteBinApp::handleActuation(const DetectionState &state) {
     Serial.println("→ PLASTIK — buka bin plastik");
     app_log::add("→ PLASTIK — buka bin plastik");
     servo_.goToPlastic();
-    delay(3000);  // jeda 3 detik biar sampah masuk
+
+    unsigned long startWait = millis();
+    bool bottleConfirmed = false;
+    while (millis() - startWait < 5000UL) {
+      float jarak = readUltrasonicDistance();
+      if (jarak > 0.0f && jarak < config::ULTRASONIC_THRESHOLD_CM) {
+        bottleConfirmed = true;
+        break;
+      }
+      delay(100);
+    }
+
+    if (bottleConfirmed) {
+      app_log::add("Botol terkonfirmasi masuk bin — siap kompresi");
+    } else {
+      app_log::add("Timeout — botol tidak terdeteksi di bin plastik");
+    }
+
     servo_.goToNeutral();
 
   } else {

@@ -2,109 +2,164 @@
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <vector>
 
 #include "AppLog.h"
 #include "Config.h"
 
+void WebDashboard::streamClientLoop(StreamSessionContext *session) {
+  static const char *kBoundary = "frame";
+
+  Serial.println("Client stream terhubung");
+
+  while (session->client.connected()) {
+    std::vector<uint8_t> jpegData;
+    if (!camera_.captureJpeg(jpegData, false)) {
+      Serial.println("Stream stop: gagal ambil frame");
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
+
+    session->client.print("--");
+    session->client.print(kBoundary);
+    session->client.print("\r\n");
+    session->client.printf("Content-Type: image/jpeg\r\n");
+    session->client.printf("Content-Length: %u\r\n\r\n", static_cast<unsigned int>(jpegData.size()));
+    session->client.write(jpegData.data(), jpegData.size());
+    session->client.printf("\r\n");
+
+    if (!session->client.connected()) {
+      break;
+    }
+
+    session->client.flush();
+    vTaskDelay(pdMS_TO_TICKS(40));
+  }
+
+  session->client.stop();
+
+  if (activeStreamClients_ > 0) {
+    activeStreamClients_--;
+  }
+
+  Serial.println("Client stream terputus");
+}
+
 WebDashboard::WebDashboard(CameraService &camera, DetectionState &state, SemaphoreHandle_t stateMutex)
-    : camera_(camera), state_(state), stateMutex_(stateMutex), server_(config::WEB_SERVER_PORT) {}
+    : camera_(camera), state_(state), stateMutex_(stateMutex),
+      controlServer_(config::WEB_SERVER_PORT), streamServer_(config::STREAM_SERVER_PORT) {}
 
 void WebDashboard::begin() {
-  server_.on("/", HTTP_GET, [this]() { handleRoot(); });
-  server_.on("/status", HTTP_GET, [this]() { handleStatus(); });
-  server_.on("/logs", HTTP_GET, [this]() { handleLogs(); });
-  server_.on("/stream", HTTP_GET, [this]() { handleStream(); });
-  server_.onNotFound([this]() { server_.send(404, "text/plain", "Not found"); });
+  controlServer_.on("/", HTTP_GET, [this]() { handleRoot(); });
+  controlServer_.on("/status", HTTP_GET, [this]() { handleStatus(); });
+  controlServer_.on("/logs", HTTP_GET, [this]() { handleLogs(); });
+  controlServer_.onNotFound([this]() { controlServer_.send(404, "text/plain", "Not found"); });
 
-  server_.begin();
-  startTask();
+  streamServer_.on("/stream", HTTP_GET, [this]() {
+    if (activeStreamClients_ > 0) {
+      streamServer_.send(503, "text/plain", "Stream sedang digunakan");
+      return;
+    }
+
+    handleStream();
+  });
+  streamServer_.onNotFound([this]() { streamServer_.send(404, "text/plain", "Not found"); });
+
+  controlServer_.begin();
+  streamServer_.begin();
+  startTasks();
 
   Serial.printf("Web dashboard siap: http://%s/\n", WiFi.localIP().toString().c_str());
 }
 
-void WebDashboard::handleClient() {
-  server_.handleClient();
+void WebDashboard::handleControlClient() {
+  controlServer_.handleClient();
+}
+
+void WebDashboard::handleStreamClient() {
+  streamServer_.handleClient();
 }
 
 bool WebDashboard::isStreamingActive() const {
   return activeStreamClients_ > 0;
 }
 
-void WebDashboard::startTask() {
-  xTaskCreatePinnedToCore(taskEntry, "web-dashboard", 8192, this, 1, nullptr, 0);
+void WebDashboard::startTasks() {
+  xTaskCreatePinnedToCore(controlTaskEntry, "web-control", 6144, this, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(streamTaskEntry, "web-stream", 8192, this, 1, nullptr, 0);
 }
 
-void WebDashboard::taskEntry(void *parameter) {
+void WebDashboard::controlTaskEntry(void *parameter) {
   auto *dashboard = static_cast<WebDashboard *>(parameter);
-  dashboard->taskLoop();
+  dashboard->controlTaskLoop();
 }
 
-void WebDashboard::taskLoop() {
+void WebDashboard::streamTaskEntry(void *parameter) {
+  auto *dashboard = static_cast<WebDashboard *>(parameter);
+  dashboard->streamTaskLoop();
+}
+
+void WebDashboard::controlTaskLoop() {
   for (;;) {
-    handleClient();
+    handleControlClient();
+    vTaskDelay(pdMS_TO_TICKS(2));
+  }
+}
+
+void WebDashboard::streamTaskLoop() {
+  for (;;) {
+    handleStreamClient();
     vTaskDelay(pdMS_TO_TICKS(2));
   }
 }
 
 void WebDashboard::handleRoot() {
-  server_.send(200, "text/html", buildHtmlPage());
+  controlServer_.send(200, "text/html", buildHtmlPage());
 }
 
 void WebDashboard::handleStatus() {
-  server_.send(200, "application/json", buildStatusJson());
+  controlServer_.send(200, "application/json", buildStatusJson());
 }
 
 void WebDashboard::handleLogs() {
-  server_.send(200, "application/json", buildLogsJson());
+  controlServer_.send(200, "application/json", buildLogsJson());
 }
 
 void WebDashboard::handleStream() {
-  WiFiClient client = server_.client();
-  static const char *kBoundary = "frame";
-  bool streamRegistered = false;
+  WiFiClient client = streamServer_.client();
 
-  Serial.println("Client stream terhubung");
+  if (activeStreamClients_ > 0) {
+    streamServer_.send(503, "text/plain", "Stream sedang digunakan");
+    return;
+  }
+
   activeStreamClients_++;
-  streamRegistered = true;
 
   client.print("HTTP/1.1 200 OK\r\n");
   client.print("Content-Type: multipart/x-mixed-replace; boundary=");
-  client.print(kBoundary);
+  client.print("frame");
   client.print("\r\n");
   client.print("Cache-Control: no-cache, no-store, must-revalidate\r\n");
   client.print("Pragma: no-cache\r\n");
   client.print("Connection: close\r\n\r\n");
 
-  while (client.connected()) {
-    camera_fb_t *frame = nullptr;
-    if (!camera_.capture(frame)) {
-      Serial.println("Stream stop: gagal ambil frame");
-      break;
-    }
-
-    client.print("--");
-    client.print(kBoundary);
-    client.print("\r\n");
-    client.printf("Content-Type: image/jpeg\r\n");
-    client.printf("Content-Length: %u\r\n\r\n", static_cast<unsigned int>(frame->len));
-    client.write(frame->buf, frame->len);
-    client.printf("\r\n");
-
-    camera_.release(frame);
-
-    if (!client.connected()) {
-      break;
-    }
-
-    client.flush();
-    vTaskDelay(pdMS_TO_TICKS(40));
-  }
-
-  if (streamRegistered && activeStreamClients_ > 0) {
+  auto *session = new StreamSessionContext{this, client};
+  BaseType_t result = xTaskCreatePinnedToCore(streamClientTaskEntry, "stream-client", 8192, session, 1, nullptr, 0);
+  if (result != pdPASS) {
     activeStreamClients_--;
+    client.stop();
+    delete session;
+    streamServer_.send(500, "text/plain", "Gagal memulai stream");
+    return;
   }
+}
 
-  Serial.println("Client stream terputus");
+void WebDashboard::streamClientTaskEntry(void *parameter) {
+  auto *session = static_cast<StreamSessionContext *>(parameter);
+  auto *dashboard = session->dashboard;
+  dashboard->streamClientLoop(session);
+  delete session;
+  vTaskDelete(nullptr);
 }
 
 String WebDashboard::buildStatusJson() {
@@ -308,7 +363,7 @@ String WebDashboard::buildHtmlPage() const {
           </div>
           <div class="badge" id="connectionBadge">Connected</div>
         </div>
-        <img class="stream-frame" src="/stream" alt="Camera stream" />
+        <img class="stream-frame" id="streamImg" alt="Camera stream" />
       </article>
 
       <aside class="card panel">
@@ -356,6 +411,9 @@ String WebDashboard::buildHtmlPage() const {
     const updatedAtEl = document.getElementById('updatedAt');
     const badgeEl = document.getElementById('connectionBadge');
     const logListEl = document.getElementById('logList');
+    const streamImg = document.getElementById('streamImg');
+
+    streamImg.src = `http://${window.location.hostname}:81/stream`;
 
     function renderLogs(entries) {
       logListEl.innerHTML = '';

@@ -50,20 +50,64 @@ bool CameraService::begin() {
   return true;
 }
 
-bool CameraService::capture(camera_fb_t *&frame) {
+bool CameraService::lockCamera(uint32_t timeoutMs) {
   if (cameraMutex_ == nullptr) {
     return false;
   }
 
-  if (xSemaphoreTake(cameraMutex_, pdMS_TO_TICKS(2000)) != pdTRUE) {
+  return xSemaphoreTake(cameraMutex_, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
+}
+
+void CameraService::unlockCamera() {
+  if (cameraMutex_ != nullptr) {
+    xSemaphoreGive(cameraMutex_);
+  }
+}
+
+bool CameraService::captureJpeg(std::vector<uint8_t> &jpegData, bool flushStale) {
+  jpegData.clear();
+
+  if (!lockCamera()) {
     Serial.println("Mutex kamera timeout");
     app_log::add("Mutex kamera timeout");
     return false;
   }
 
+  camera_fb_t *stale = nullptr;
+  if (flushStale) {
+    stale = esp_camera_fb_get();
+    if (stale != nullptr) {
+      esp_camera_fb_return(stale);
+    }
+  }
+
+  camera_fb_t *frame = esp_camera_fb_get();
+  if (frame == nullptr) {
+    unlockCamera();
+    Serial.println("Gagal capture frame");
+    app_log::add("Gagal capture frame");
+    return false;
+  }
+
+  jpegData.resize(frame->len);
+  memcpy(jpegData.data(), frame->buf, frame->len);
+  esp_camera_fb_return(frame);
+  unlockCamera();
+  return true;
+}
+
+bool CameraService::capture(camera_fb_t *&frame) {
+  if (cameraMutex_ == nullptr) {
+    return false;
+  }
+
+  if (!lockCamera(2000)) {
+    return false;
+  }
+
   frame = esp_camera_fb_get();
   if (!frame) {
-    xSemaphoreGive(cameraMutex_);
+    unlockCamera();
     Serial.println("Gagal capture frame");
     app_log::add("Gagal capture frame");
     return false;
@@ -77,9 +121,7 @@ void CameraService::release(camera_fb_t *frame) {
     esp_camera_fb_return(frame);
   }
 
-  if (cameraMutex_ != nullptr) {
-    xSemaphoreGive(cameraMutex_);
-  }
+  unlockCamera();
 }
 
 String CameraService::encodeBase64(const uint8_t *data, size_t len) {
@@ -101,14 +143,13 @@ String CameraService::encodeBase64(const uint8_t *data, size_t len) {
 }
 
 String CameraService::captureBase64() {
-  camera_fb_t *frame = nullptr;
-  if (!capture(frame)) {
+  std::vector<uint8_t> jpegData;
+  if (!captureJpeg(jpegData, true)) {
     return "";
   }
 
-  String encoded = encodeBase64(frame->buf, frame->len);
-  Serial.printf("Capture OK: %d bytes -> base64 %d chars\n", frame->len, encoded.length());
-  app_log::add(String("Capture OK: ") + String(frame->len) + " bytes -> base64 " + String(encoded.length()) + " chars");
-  release(frame);
+  String encoded = encodeBase64(jpegData.data(), jpegData.size());
+  Serial.printf("Capture OK: %d bytes -> base64 %d chars\n", static_cast<unsigned int>(jpegData.size()), encoded.length());
+  app_log::add(String("Capture OK: ") + String(static_cast<unsigned int>(jpegData.size())) + " bytes -> base64 " + String(encoded.length()) + " chars");
   return encoded;
 }

@@ -11,19 +11,30 @@ class WebDashboard {
   WebDashboard(CameraService &camera, DetectionState &state, SemaphoreHandle_t stateMutex);
 
   void begin();
-  void handleClient();
+  void handleControlClient();
+  void handleStreamClient();
   bool isStreamingActive() const;
 
  private:
+  struct StreamSessionContext {
+    WebDashboard *dashboard;
+    WiFiClient client;
+  };
+
   CameraService &camera_;
   DetectionState &state_;
   SemaphoreHandle_t stateMutex_;
-  WebServer server_;
+  WebServer controlServer_;
+  WebServer streamServer_;
   volatile uint32_t activeStreamClients_ = 0;
 
-  void startTask();
-  static void taskEntry(void *parameter);
-  void taskLoop();
+  void startTasks();
+  static void controlTaskEntry(void *parameter);
+  static void streamTaskEntry(void *parameter);
+  static void streamClientTaskEntry(void *parameter);
+  void controlTaskLoop();
+  void streamTaskLoop();
+  void streamClientLoop(StreamSessionContext *session);
 
   void handleRoot();
   void handleStatus();

@@ -18,6 +18,7 @@ private:
   void runDetectionCycle();
   void handleActuation(const DetectionState &state);  
   bool isObjectDetected();
+  float readUltrasonicDistance();
 
   CameraService    camera_;
   BackendClient    backend_{config::BACKEND_URL};
