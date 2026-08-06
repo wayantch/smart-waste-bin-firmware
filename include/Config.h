@@ -4,11 +4,12 @@
 
 namespace config {
 
-constexpr const char *WIFI_SSID = "Made suwarte";
-constexpr const char *WIFI_PASSWORD = "wayan2004";
+constexpr const char *WIFI_SSID = "Ayumi";
+constexpr const char *WIFI_PASSWORD = "2019ayumi";
 // constexpr const char *WIFI_SSID = "wynnsea";
 // constexpr const char *WIFI_PASSWORD = "wayan123";
-constexpr const char *BACKEND_URL = "http://192.168.0.102:5000/classify";
+// constexpr const char *BACKEND_URL = "http://192.168.0.102:5000/classify";
+constexpr const char *BACKEND_URL = "http://192.168.180.42:5000/classify";
 
 constexpr uint16_t WEB_SERVER_PORT = 80;
 constexpr uint16_t STREAM_SERVER_PORT = 81;
@@ -36,5 +37,11 @@ constexpr int ULTRASONIC_TRIG_PIN = 3;
 constexpr int ULTRASONIC_ECHO_PIN = 14;
 constexpr float ULTRASONIC_THRESHOLD_CM = 15.0f;
 constexpr unsigned long ULTRASONIC_TIMEOUT_US = 30000UL;
+constexpr int MOTOR_IN1_PIN = 39;
+constexpr int MOTOR_IN2_PIN = 40;
+constexpr int MOTOR_IN3_PIN = 41;
+constexpr int MOTOR_IN4_PIN = 42;
+constexpr uint32_t MOTOR_PRE_COMPRESSION_DELAY_MS = 2000;
+constexpr uint32_t MOTOR_RUN_MS = 30000;
 
 }  // namespace config

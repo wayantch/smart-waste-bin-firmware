@@ -19,6 +19,10 @@ private:
   void handleActuation(const DetectionState &state);  
   bool isObjectDetected();
   float readUltrasonicDistance();
+  void initMotorDriver();
+  void startCompressionMotor();
+  void stopCompressionMotor();
+  void runCompressionMotor(uint32_t durationMs);
 
   CameraService    camera_;
   BackendClient    backend_{config::BACKEND_URL};

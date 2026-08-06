@@ -17,6 +17,8 @@ bool WasteBinApp::begin() {
   // Init servo
   servo_.begin();
 
+  initMotorDriver();
+
   // Init sensor IR
   pinMode(config::IR_SENSOR_PIN, INPUT);
   Serial.println("Sensor IR OK!");
@@ -53,6 +55,42 @@ void WasteBinApp::connectWifi() {
 
   Serial.printf("\nWiFi OK! IP: %s\n", WiFi.localIP().toString().c_str());
   app_log::add(String("WiFi OK! IP: ") + WiFi.localIP().toString().c_str());
+}
+
+void WasteBinApp::initMotorDriver() {
+  pinMode(config::MOTOR_IN1_PIN, OUTPUT);
+  pinMode(config::MOTOR_IN2_PIN, OUTPUT);
+  pinMode(config::MOTOR_IN3_PIN, OUTPUT);
+  pinMode(config::MOTOR_IN4_PIN, OUTPUT);
+
+  stopCompressionMotor();
+
+  Serial.println("Motor driver L298N OK!");
+  app_log::add("Motor driver L298N OK!");
+}
+
+void WasteBinApp::startCompressionMotor() {
+  digitalWrite(config::MOTOR_IN1_PIN, HIGH);
+  digitalWrite(config::MOTOR_IN2_PIN, LOW);
+  digitalWrite(config::MOTOR_IN3_PIN, HIGH);
+  digitalWrite(config::MOTOR_IN4_PIN, LOW);
+  Serial.println("Motor kompresi jalan");
+  app_log::add("Motor kompresi jalan");
+}
+
+void WasteBinApp::stopCompressionMotor() {
+  digitalWrite(config::MOTOR_IN1_PIN, LOW);
+  digitalWrite(config::MOTOR_IN2_PIN, LOW);
+  digitalWrite(config::MOTOR_IN3_PIN, LOW);
+  digitalWrite(config::MOTOR_IN4_PIN, LOW);
+  Serial.println("Motor kompresi berhenti");
+  app_log::add("Motor kompresi berhenti");
+}
+
+void WasteBinApp::runCompressionMotor(uint32_t durationMs) {
+  startCompressionMotor();
+  delay(durationMs);
+  stopCompressionMotor();
 }
 
 bool WasteBinApp::isObjectDetected() {
@@ -124,6 +162,8 @@ void WasteBinApp::handleActuation(const DetectionState &state) {
 
     if (bottleConfirmed) {
       app_log::add("Botol terkonfirmasi masuk bin — siap kompresi");
+      delay(config::MOTOR_PRE_COMPRESSION_DELAY_MS);
+      runCompressionMotor(config::MOTOR_RUN_MS);
     } else {
       app_log::add("Timeout — botol tidak terdeteksi di bin plastik");
     }

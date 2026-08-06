@@ -189,11 +189,11 @@ String WebDashboard::buildLogsJson() {
 String WebDashboard::buildHtmlPage() const {
   return R"HTML(
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Smart Waste Bin Live View</title>
+  <title>Dashboard Smart Waste Bin</title>
   <style>
     :root {
       color-scheme: dark;
@@ -206,9 +206,20 @@ String WebDashboard::buildHtmlPage() const {
       --border: rgba(148, 163, 184, 0.18);
     }
     * { box-sizing: border-box; }
+    html {
+      height: 100%;
+      overflow: hidden;
+      scrollbar-width: none;
+    }
+    html::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
     body {
       margin: 0;
-      min-height: 100vh;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
       font-family: "Segoe UI", "Trebuchet MS", sans-serif;
       color: var(--text);
       background:
@@ -217,11 +228,17 @@ String WebDashboard::buildHtmlPage() const {
         linear-gradient(180deg, #09111f 0%, #050814 100%);
     }
     .shell {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
       width: min(1180px, calc(100% - 32px));
       margin: 0 auto;
-      padding: 24px 0 32px;
+      padding: 18px 0;
+      min-height: 0;
     }
     .hero {
+      flex: 1;
+      min-height: 0;
       display: grid;
       grid-template-columns: 1.4fr 0.9fr;
       gap: 20px;
@@ -235,7 +252,12 @@ String WebDashboard::buildHtmlPage() const {
       overflow: hidden;
       backdrop-filter: blur(18px);
     }
-    .video-card { padding: 18px; }
+    .video-card {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
     .title-row {
       display: flex;
       justify-content: space-between;
@@ -260,16 +282,20 @@ String WebDashboard::buildHtmlPage() const {
     .stream-frame {
       aspect-ratio: 4 / 3;
       width: 100%;
+      flex: 1;
+      min-height: 0;
       border-radius: 20px;
       background: #02050d;
       border: 1px solid rgba(148, 163, 184, 0.16);
       object-fit: cover;
     }
     .panel {
+      min-height: 0;
       display: grid;
       gap: 16px;
       padding: 18px;
       background: var(--panel-2);
+      grid-template-rows: auto auto auto auto;
     }
     .metric-grid {
       display: grid;
@@ -312,11 +338,13 @@ String WebDashboard::buildHtmlPage() const {
       font-size: 0.92rem;
     }
     .log-panel {
-      margin-top: 16px;
       padding: 16px;
       border-radius: 18px;
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(148, 163, 184, 0.12);
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
     .log-panel h3 {
       margin: 0 0 12px;
@@ -328,8 +356,14 @@ String WebDashboard::buildHtmlPage() const {
       list-style: none;
       display: grid;
       gap: 8px;
-      max-height: 260px;
+      flex: 1;
+      min-height: 0;
       overflow: auto;
+      scrollbar-width: none;
+    }
+    .log-list::-webkit-scrollbar {
+      width: 0;
+      height: 0;
     }
     .log-item {
       padding: 10px 12px;
@@ -348,7 +382,30 @@ String WebDashboard::buildHtmlPage() const {
       margin-bottom: 4px;
     }
     @media (max-width: 900px) {
-      .hero { grid-template-columns: 1fr; }
+      body {
+        height: auto;
+        min-height: 100vh;
+        min-height: 100dvh;
+        overflow: hidden;
+      }
+      .shell {
+        height: 100vh;
+        height: 100dvh;
+        width: min(1180px, calc(100% - 20px));
+        padding: 10px 0;
+      }
+      .hero {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) minmax(0, auto);
+        gap: 12px;
+      }
+      .panel {
+        gap: 12px;
+        padding: 14px;
+      }
+      .video-card {
+        padding: 14px;
+      }
     }
   </style>
 </head>
@@ -358,41 +415,41 @@ String WebDashboard::buildHtmlPage() const {
       <article class="card video-card">
         <div class="title-row">
           <div>
-            <h1>Smart Waste Bin Live View</h1>
-            <div class="muted">Realtime camera stream saat klasifikasi berjalan</div>
+            <h1>Dashboard Smart Waste Bin</h1>
+            <div class="muted">Streaming kamera dan status klasifikasi secara langsung</div>
           </div>
-          <div class="badge" id="connectionBadge">Connected</div>
+          <div class="badge" id="connectionBadge">Terhubung</div>
         </div>
-        <img class="stream-frame" id="streamImg" alt="Camera stream" />
+        <img class="stream-frame" id="streamImg" alt="Streaming kamera" />
       </article>
 
       <aside class="card panel">
         <div class="status">
           <h2>Status Deteksi</h2>
-          <div class="status-value" id="label">waiting</div>
+          <div class="status-value" id="label">menunggu</div>
           <div class="muted" id="updatedAt">Menunggu hasil terbaru...</div>
         </div>
 
         <div class="metric-grid">
           <div class="metric">
-            <span>Confidence</span>
+            <span>Kepercayaan</span>
             <strong id="confidence">0%</strong>
           </div>
           <div class="metric">
-            <span>Objects</span>
+            <span>Objek</span>
             <strong id="detections">0</strong>
           </div>
           <div class="metric">
-            <span>Latency</span>
+            <span>Latensi</span>
             <strong id="latency">0 ms</strong>
           </div>
           <div class="metric">
             <span>Valid</span>
-            <strong id="valid">false</strong>
+            <strong id="valid">Tidak</strong>
           </div>
         </div>
 
-        <div class="footer">Refresh status otomatis setiap 1 detik.</div>
+        <div class="footer">Pembaruan status otomatis setiap 1 detik.</div>
 
         <section class="log-panel">
           <h3>Log</h3>
@@ -414,6 +471,24 @@ String WebDashboard::buildHtmlPage() const {
     const streamImg = document.getElementById('streamImg');
 
     streamImg.src = `http://${window.location.hostname}:81/stream`;
+
+    function formatLabel(value) {
+      const normalized = String(value || '').toLowerCase();
+
+      if (normalized === 'plastic') {
+        return 'plastik';
+      }
+
+      if (normalized === 'non-plastic' || normalized === 'nonplastic' || normalized === 'non plastic') {
+        return 'non-plastik';
+      }
+
+      if (normalized === 'waiting') {
+        return 'menunggu';
+      }
+
+      return value || 'menunggu';
+    }
 
     function renderLogs(entries) {
       logListEl.innerHTML = '';
@@ -452,17 +527,17 @@ String WebDashboard::buildHtmlPage() const {
         const data = await statusResponse.json();
         const logs = await logsResponse.json();
 
-        labelEl.textContent = data.label || 'waiting';
+        labelEl.textContent = formatLabel(data.label);
         confidenceEl.textContent = `${Math.round((data.confidence || 0) * 100)}%`;
         detectionsEl.textContent = data.detections ?? 0;
         latencyEl.textContent = `${data.latency_ms ?? 0} ms`;
-        validEl.textContent = String(Boolean(data.valid));
-        updatedAtEl.textContent = data.valid ? `Updated at ${new Date().toLocaleTimeString()}` : 'Menunggu hasil terbaru...';
-        badgeEl.textContent = 'Live';
+        validEl.textContent = Boolean(data.valid) ? 'Ya' : 'Tidak';
+        updatedAtEl.textContent = data.valid ? `Diperbarui pukul ${new Date().toLocaleTimeString()}` : 'Menunggu hasil terbaru...';
+        badgeEl.textContent = 'Langsung';
         renderLogs(logs);
       } catch (error) {
-        badgeEl.textContent = 'Offline';
-        updatedAtEl.textContent = 'Tidak bisa mengambil status dari device.';
+        badgeEl.textContent = 'Luring';
+        updatedAtEl.textContent = 'Tidak bisa mengambil status dari perangkat.';
         renderLogs([]);
       }
     }
