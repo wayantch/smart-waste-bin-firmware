@@ -3,12 +3,13 @@
 #include <Arduino.h>
 #include <WebServer.h>
 
+#include "BinLevelState.h"
 #include "CameraService.h"
 #include "DetectionState.h"
 
 class WebDashboard {
  public:
-  WebDashboard(CameraService &camera, DetectionState &state, SemaphoreHandle_t stateMutex);
+  WebDashboard(CameraService &camera, DetectionState &state, BinLevelState &binLevel, SemaphoreHandle_t stateMutex);
 
   void begin();
   void handleControlClient();
@@ -23,6 +24,7 @@ class WebDashboard {
 
   CameraService &camera_;
   DetectionState &state_;
+  BinLevelState &binLevel_;
   SemaphoreHandle_t stateMutex_;
   WebServer controlServer_;
   WebServer streamServer_;

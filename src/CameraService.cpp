@@ -12,8 +12,8 @@ bool CameraService::begin() {
   }
 
   camera_config_t config{};
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
+  config.ledc_channel = LEDC_CHANNEL_3;
+  config.ledc_timer = LEDC_TIMER_1;
   config.pin_d0 = config::Y2_GPIO_NUM;
   config.pin_d1 = config::Y3_GPIO_NUM;
   config.pin_d2 = config::Y4_GPIO_NUM;

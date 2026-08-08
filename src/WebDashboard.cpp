@@ -45,8 +45,8 @@ void WebDashboard::streamClientLoop(StreamSessionContext *session) {
   Serial.println("Client stream terputus");
 }
 
-WebDashboard::WebDashboard(CameraService &camera, DetectionState &state, SemaphoreHandle_t stateMutex)
-    : camera_(camera), state_(state), stateMutex_(stateMutex),
+WebDashboard::WebDashboard(CameraService &camera, DetectionState &state, BinLevelState &binLevel, SemaphoreHandle_t stateMutex)
+    : camera_(camera), state_(state), binLevel_(binLevel), stateMutex_(stateMutex),
       controlServer_(config::WEB_SERVER_PORT), streamServer_(config::STREAM_SERVER_PORT) {}
 
 void WebDashboard::begin() {
@@ -86,7 +86,7 @@ bool WebDashboard::isStreamingActive() const {
 
 void WebDashboard::startTasks() {
   xTaskCreatePinnedToCore(controlTaskEntry, "web-control", 6144, this, 1, nullptr, 1);
-  xTaskCreatePinnedToCore(streamTaskEntry, "web-stream", 8192, this, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(streamTaskEntry, "web-stream", 8192, this, 1, nullptr, 1);
 }
 
 void WebDashboard::controlTaskEntry(void *parameter) {
@@ -164,8 +164,10 @@ void WebDashboard::streamClientTaskEntry(void *parameter) {
 
 String WebDashboard::buildStatusJson() {
   DetectionState snapshot;
+  BinLevelState binSnapshot;
   if (xSemaphoreTake(stateMutex_, pdMS_TO_TICKS(200)) == pdTRUE) {
     snapshot = state_;
+    binSnapshot = binLevel_;
     xSemaphoreGive(stateMutex_);
   }
 
@@ -176,6 +178,10 @@ String WebDashboard::buildStatusJson() {
   doc["latency_ms"] = snapshot.latencyMs;
   doc["valid"] = snapshot.valid;
   doc["updated_at"] = snapshot.updatedAt;
+  doc["bin_plastic_full"] = binSnapshot.plasticFull;
+  doc["bin_plastic_distance_cm"] = binSnapshot.plasticDistanceCm;
+  doc["bin_nonplastic_full"] = binSnapshot.nonPlasticFull;
+  doc["bin_nonplastic_distance_cm"] = binSnapshot.nonPlasticDistanceCm;
 
   String json;
   serializeJson(doc, json);
@@ -189,11 +195,11 @@ String WebDashboard::buildLogsJson() {
 String WebDashboard::buildHtmlPage() const {
   return R"HTML(
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dashboard Smart Waste Bin</title>
+  <title>Smart Waste Bin</title>
   <style>
     :root {
       color-scheme: dark;
@@ -240,7 +246,7 @@ String WebDashboard::buildHtmlPage() const {
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: 1.4fr 0.9fr;
+      grid-template-columns: 1.1fr 1fr;
       gap: 20px;
       align-items: stretch;
     }
@@ -292,29 +298,34 @@ String WebDashboard::buildHtmlPage() const {
     .panel {
       min-height: 0;
       display: grid;
-      gap: 16px;
+      gap: 14px;
       padding: 18px;
       background: var(--panel-2);
-      grid-template-rows: auto auto auto auto;
+      grid-template-rows: auto auto auto 1fr;
     }
     .metric-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
     .metric {
-      padding: 16px;
-      border-radius: 18px;
+      padding: 12px;
+      border-radius: 16px;
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(148, 163, 184, 0.12);
     }
     .metric span {
       display: block;
       color: var(--muted);
-      font-size: 0.85rem;
-      margin-bottom: 6px;
+      font-size: 0.78rem;
+      margin-bottom: 4px;
     }
-    .metric strong { font-size: 1.2rem; }
+    .metric strong { font-size: 1.05rem; }
+    .metric.full {
+      border-color: rgba(248, 113, 113, 0.5);
+      background: rgba(248, 113, 113, 0.1);
+    }
+    .metric.full strong { color: #f87171; }
     .status {
       padding: 18px;
       border-radius: 18px;
@@ -332,23 +343,48 @@ String WebDashboard::buildHtmlPage() const {
       margin-bottom: 10px;
     }
     .muted { color: var(--muted); }
-    .footer {
-      margin-top: 16px;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
     .log-panel {
-      padding: 16px;
+      padding: 18px;
       border-radius: 18px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(94, 234, 212, 0.05);
+      border: 1px solid rgba(94, 234, 212, 0.35);
+      box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.06) inset;
       min-height: 0;
       display: flex;
       flex-direction: column;
     }
+    .log-panel-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
     .log-panel h3 {
-      margin: 0 0 12px;
-      font-size: 1rem;
+      margin: 0;
+      font-size: 1.15rem;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.6);
+      animation: pulse 1.6s infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.55); }
+      70% { box-shadow: 0 0 0 8px rgba(94, 234, 212, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(94, 234, 212, 0); }
+    }
+    .log-panel-hint {
+      font-size: 0.8rem;
+      margin-bottom: 10px;
     }
     .log-list {
       margin: 0;
@@ -366,14 +402,17 @@ String WebDashboard::buildHtmlPage() const {
       height: 0;
     }
     .log-item {
-      padding: 10px 12px;
+      padding: 12px 14px;
       border-radius: 12px;
       background: rgba(15, 23, 42, 0.8);
       border: 1px solid rgba(148, 163, 184, 0.1);
       color: #dbe7f7;
-      font-size: 0.9rem;
+      font-size: 0.95rem;
       line-height: 1.45;
       white-space: pre-wrap;
+    }
+    .log-item:first-child {
+      border-color: rgba(94, 234, 212, 0.3);
     }
     .log-meta {
       display: block;
@@ -415,44 +454,53 @@ String WebDashboard::buildHtmlPage() const {
       <article class="card video-card">
         <div class="title-row">
           <div>
-            <h1>Dashboard Smart Waste Bin</h1>
-            <div class="muted">Streaming kamera dan status klasifikasi secara langsung</div>
+            <h1>Smart Waste Bin</h1>
+            <div class="muted">See the live status of your waste bin here</div>
           </div>
-          <div class="badge" id="connectionBadge">Terhubung</div>
+          <div class="badge" id="connectionBadge">Connected</div>
         </div>
-        <img class="stream-frame" id="streamImg" alt="Streaming kamera" />
+        <img class="stream-frame" id="streamImg" alt="Waste bin camera view" />
       </article>
 
       <aside class="card panel">
         <div class="status">
-          <h2>Status Deteksi</h2>
-          <div class="status-value" id="label">menunggu</div>
-          <div class="muted" id="updatedAt">Menunggu hasil terbaru...</div>
+          <h2>Last Item Detected</h2>
+          <div class="status-value" id="label">Waiting for Item</div>
+          <div class="muted" id="updatedAt">No item detected yet</div>
         </div>
 
         <div class="metric-grid">
           <div class="metric">
-            <span>Kepercayaan</span>
+            <span>Confidence Level</span>
             <strong id="confidence">0%</strong>
           </div>
           <div class="metric">
-            <span>Objek</span>
+            <span>Items Detected</span>
             <strong id="detections">0</strong>
           </div>
           <div class="metric">
-            <span>Latensi</span>
+            <span>Processing Time</span>
             <strong id="latency">0 ms</strong>
           </div>
           <div class="metric">
-            <span>Valid</span>
-            <strong id="valid">Tidak</strong>
+            <span>Detection Status</span>
+            <strong id="valid">Not Yet</strong>
+          </div>
+          <div class="metric" id="binPlasticMetric">
+            <span>Plastic Bin</span>
+            <strong id="binPlastic">-</strong>
+          </div>
+          <div class="metric" id="binNonPlasticMetric">
+            <span>General Waste Bin</span>
+            <strong id="binNonPlastic">-</strong>
           </div>
         </div>
 
-        <div class="footer">Pembaruan status otomatis setiap 1 detik.</div>
-
         <section class="log-panel">
-          <h3>Log</h3>
+          <div class="log-panel-header">
+            <h3><span class="live-dot"></span>Activity Log</h3>
+          </div>
+          <div class="muted log-panel-hint">Live updates every second — what the bin is doing right now.</div>
           <ul class="log-list" id="logList"></ul>
         </section>
       </aside>
@@ -465,6 +513,10 @@ String WebDashboard::buildHtmlPage() const {
     const detectionsEl = document.getElementById('detections');
     const latencyEl = document.getElementById('latency');
     const validEl = document.getElementById('valid');
+    const binPlasticEl = document.getElementById('binPlastic');
+    const binPlasticMetricEl = document.getElementById('binPlasticMetric');
+    const binNonPlasticEl = document.getElementById('binNonPlastic');
+    const binNonPlasticMetricEl = document.getElementById('binNonPlasticMetric');
     const updatedAtEl = document.getElementById('updatedAt');
     const badgeEl = document.getElementById('connectionBadge');
     const logListEl = document.getElementById('logList');
@@ -476,18 +528,18 @@ String WebDashboard::buildHtmlPage() const {
       const normalized = String(value || '').toLowerCase();
 
       if (normalized === 'plastic') {
-        return 'plastik';
+        return 'Plastic';
       }
 
       if (normalized === 'non-plastic' || normalized === 'nonplastic' || normalized === 'non plastic') {
-        return 'non-plastik';
+        return 'Non-Plastic';
       }
 
       if (normalized === 'waiting') {
-        return 'menunggu';
+        return 'Waiting for Item';
       }
 
-      return value || 'menunggu';
+      return value || 'Waiting for Item';
     }
 
     function renderLogs(entries) {
@@ -496,7 +548,7 @@ String WebDashboard::buildHtmlPage() const {
       if (!entries || entries.length === 0) {
         const emptyItem = document.createElement('li');
         emptyItem.className = 'log-item';
-        emptyItem.textContent = 'Belum ada log.';
+        emptyItem.textContent = 'No activity yet.';
         logListEl.appendChild(emptyItem);
         return;
       }
@@ -531,13 +583,17 @@ String WebDashboard::buildHtmlPage() const {
         confidenceEl.textContent = `${Math.round((data.confidence || 0) * 100)}%`;
         detectionsEl.textContent = data.detections ?? 0;
         latencyEl.textContent = `${data.latency_ms ?? 0} ms`;
-        validEl.textContent = Boolean(data.valid) ? 'Ya' : 'Tidak';
-        updatedAtEl.textContent = data.valid ? `Diperbarui pukul ${new Date().toLocaleTimeString()}` : 'Menunggu hasil terbaru...';
-        badgeEl.textContent = 'Langsung';
+        validEl.textContent = Boolean(data.valid) ? 'Success' : 'Not Yet';
+        binPlasticEl.textContent = data.bin_plastic_full ? 'Full' : 'Has Room';
+        binPlasticMetricEl.classList.toggle('full', Boolean(data.bin_plastic_full));
+        binNonPlasticEl.textContent = data.bin_nonplastic_full ? 'Full' : 'Has Room';
+        binNonPlasticMetricEl.classList.toggle('full', Boolean(data.bin_nonplastic_full));
+        updatedAtEl.textContent = data.valid ? `Last checked at ${new Date().toLocaleTimeString()}` : 'No item detected yet';
+        badgeEl.textContent = 'Connected';
         renderLogs(logs);
       } catch (error) {
-        badgeEl.textContent = 'Luring';
-        updatedAtEl.textContent = 'Tidak bisa mengambil status dari perangkat.';
+        badgeEl.textContent = 'Disconnected';
+        updatedAtEl.textContent = "Can't reach the device — please check your WiFi connection.";
         renderLogs([]);
       }
     }
