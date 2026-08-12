@@ -72,13 +72,13 @@ void WasteBinApp::connectWifi() {
 }
 
 void WasteBinApp::initMotorDriver() {
-  pinMode(config::MOTOR_IN1_PIN, OUTPUT);
-  pinMode(config::MOTOR_IN2_PIN, OUTPUT);
+  pinMode(config::MOTOR_RELAY1_PIN, OUTPUT);
+  pinMode(config::MOTOR_RELAY2_PIN, OUTPUT);
 
-  stopCompressionMotor();
+  stopCompressionMotor();  // pastikan kedua relay OFF (motor direm) sejak awal
 
-  Serial.println("Motor driver L298N OK!");
-  app_log::add("Motor driver L298N OK!");
+  Serial.println("Motor driver relay OK!");
+  app_log::add("Motor driver relay OK!");
 }
 
 void WasteBinApp::initLimitSwitches() {
@@ -88,25 +88,46 @@ void WasteBinApp::initLimitSwitches() {
   app_log::add("Limit switch OK!");
 }
 
-void WasteBinApp::startCompressionMotor() {
-  digitalWrite(config::MOTOR_IN1_PIN, HIGH);
-  digitalWrite(config::MOTOR_IN2_PIN, LOW);
-  Serial.println("Motor kompresi jalan");
-  app_log::add("Motor kompresi jalan");
+void WasteBinApp::setMotorRelay(int pin, bool energized) {
+  int level;
+  if (config::MOTOR_RELAY_ACTIVE_LOW) {
+    level = energized ? LOW : HIGH;
+  } else {
+    level = energized ? HIGH : LOW;
+  }
+  digitalWrite(pin, level);
 }
 
 void WasteBinApp::stopCompressionMotor() {
-  digitalWrite(config::MOTOR_IN1_PIN, LOW);
-  digitalWrite(config::MOTOR_IN2_PIN, LOW);
-  Serial.println("Motor kompresi berhenti");
-  app_log::add("Motor kompresi berhenti");
+  // Kedua relay OFF -> kedua terminal motor ke GND -> motor direm
+  setMotorRelay(config::MOTOR_RELAY1_PIN, false);
+  setMotorRelay(config::MOTOR_RELAY2_PIN, false);
+  Serial.println("Motor kompresi berhenti (rem — Relay 1 & 2 OFF)");
+  app_log::add("Motor kompresi berhenti (rem — Relay 1 & 2 OFF)");
+}
+
+void WasteBinApp::startCompressionMotor() {
+  // Selalu OFF-kan dulu + jeda, supaya relay arah sebelumnya benar-benar lepas
+  // sebelum relay arah baru dinyalakan — dua relay TIDAK BOLEH ON bersamaan.
+  setMotorRelay(config::MOTOR_RELAY1_PIN, false);
+  setMotorRelay(config::MOTOR_RELAY2_PIN, false);
+  delay(config::MOTOR_RELAY_SWITCH_DELAY_MS);
+
+  setMotorRelay(config::MOTOR_RELAY1_PIN, true);
+  setMotorRelay(config::MOTOR_RELAY2_PIN, false);
+  Serial.println("Motor kompresi jalan (Relay 1 ON, Relay 2 OFF — maju/menekan)");
+  app_log::add("Motor kompresi jalan (Relay 1 ON, Relay 2 OFF — maju/menekan)");
 }
 
 void WasteBinApp::reverseCompressionMotor() {
-  digitalWrite(config::MOTOR_IN1_PIN, LOW);
-  digitalWrite(config::MOTOR_IN2_PIN, HIGH);
-  Serial.println("Motor mundur (retract)");
-  app_log::add("Motor mundur (retract)");
+  setMotorRelay(config::MOTOR_RELAY1_PIN, false);
+  setMotorRelay(config::MOTOR_RELAY2_PIN, false);
+  delay(config::MOTOR_RELAY_SWITCH_DELAY_MS);
+
+  setMotorRelay(config::MOTOR_RELAY1_PIN, false);
+  setMotorRelay(config::MOTOR_RELAY2_PIN, true);
+  Serial.println("Motor mundur/retract (Relay 1 OFF, Relay 2 ON — mundur)");
+  app_log::add("Motor mundur/retract (Relay 1 OFF, Relay 2 ON — mundur)");
 }
 
 bool WasteBinApp::isAtHomePosition() {

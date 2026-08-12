@@ -23,6 +23,7 @@ private:
   float measureDistanceCm(int trigPin, int echoPin);
   void initMotorDriver();
   void initLimitSwitches();
+  void setMotorRelay(int pin, bool energized);
   void startCompressionMotor();
   void stopCompressionMotor();
   void reverseCompressionMotor();
